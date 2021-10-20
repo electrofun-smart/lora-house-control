@@ -1,44 +1,47 @@
 /*
-  LoRa Duplex communication wth callback
-
-  Sends a message every half second, and uses callback
-  for new incoming messages. Implements a one-byte addressing scheme,
-  with 0xFF as the broadcast address.
-
-  Note: while sending, LoRa radio is not listening for incoming messages.
-  Note2: when using the callback method, you can't use any of the Stream
-  functions that rely on the timeout, such as readString, parseInt(), etc.
-
-  created 28 April 2017
-  by Tom Igoe
-
-  adapted by Murilo Andrade
-  Home Terra Nostra Device
+  LoRa House Control of Lora Water Pump
+  LED indicates the state of relay/water pump at other end (Lora Water Pump)
+  LED blinking indicates that relay/water pump at other end (Lora Water Pump) is on and controlled by a Timer of 45 minutes
+  Button toggles the state of relay/water pump
+  Button long press, turn on the relay/water pump with a timer.
 */
+
 #include <SPI.h>              // include libraries
 #include <LoRa.h>
+#include <ezButton.h>         // handle the button press eliminating bouncing
 
-const int csPin = 15;          // LoRa radio chip select
-const int resetPin = 16;       // LoRa radio reset
+const int csPin = 15;         // LoRa radio chip select
+const int resetPin = 16;      // LoRa radio reset
 const int irqPin = 4;         // change for your board; must be a hardware interrupt pin
-const int button = 5;
-const int led = 2;
+const int LED = 2;
 
+ezButton button1(5);
+
+const int DEBOUNCE_DELAY = 70;
+const int LONG_PRESS_TIME  = 2000; // 2000 milliseconds
+const int ASK_TIME  = 30000; // 30 seconds
 
 String outgoing;              // outgoing message
 byte msgCount = 0;            // count of outgoing messages
 byte localAddress = 0xDA;     // address of this device
 byte destination = 0xDF;      // destinatioln to send to
 long lastSendTime = 0;        // last send time
-int intervalask = 10000;     // interval between sends
+int intervalask = ASK_TIME;     // interval between sends
+long interval = 60000;          // interval between sends
+byte counterTimer = 0;
+boolean timerRunning = false;
+boolean blinkLed = false;
+unsigned long pressedTime  = 0;
+unsigned long releasedTime = 0;
 
 void setup() {
   Serial.begin(9600);                   // initialize serial
 
   while (!Serial);
 
-  pinMode(button, INPUT);
-  pinMode(led, OUTPUT);
+  //pinMode(button, INPUT);
+  pinMode(LED, OUTPUT);
+  button1.setDebounceTime(DEBOUNCE_DELAY); 
   
   Serial.println("LoRa Duplex with callback");
 
@@ -59,25 +62,37 @@ void setup() {
 }
 
 void loop() {
-  int sensorButton = digitalRead(button);
   
-  if (sensorButton == HIGH) {
-    delay(2000);
-    //String message = "HeLoRa World! from Home Terra Nostra Device 0xDA";   // send a message
-    String message = "toggle";
-    sendMessage(message);
-    Serial.println("Sending " + message);
+  button1.loop();
+  
+   if(button1.isPressed()){
+    sendMessage("toggle");              // send lora message to toggle relay
+    Serial.println("Sending toggle");
+    pressedTime = millis();             // save pressed time for release time calculation
+    timerRunning = false;               // stop timer when short pressed
     LoRa.receive();                     // go back into receive mode
   }
 
   if ((millis() - lastSendTime) > intervalask) {
-    String message = "asking";   // send a message
-    sendMessage(message);
+    sendMessage("asking");
     lastSendTime = millis();           // timestamp the message
-    intervalask = 30000;                  // 10 seconds
-    Serial.println("Sending " + message);
+    Serial.println("Sending asking");
     LoRa.receive();                    // go back into receive mode
   }
+  
+  if(button1.isReleased()){
+    Serial.println("The button is released");
+    releasedTime = millis();
+    long pressDuration = releasedTime - pressedTime;
+
+    if( pressDuration > LONG_PRESS_TIME ){
+      Serial.println("A long press is detected, turn on Relay and time it");
+      timerRunning = true; //wait for led on feedback to blink LED
+      sendMessage("timer");              // send lora message to turn on relay and time it
+      Serial.println("Sending timer");
+    }
+  }
+  checkTimer();
 }
 
 void sendMessage(String outgoing) {
@@ -118,10 +133,14 @@ void onReceive(int packetSize) {
   }
 
   if (incoming == "led on"){
-    digitalWrite(led, HIGH);
+    digitalWrite(LED, HIGH);
+    if (timerRunning)
+       blinkLed = true;
   }
   if (incoming == "led off"){
-    digitalWrite(led, LOW);
+    digitalWrite(LED, LOW);
+    timerRunning = false;
+    blinkLed = false;
   }
   // if message is for this device, or broadcast, print details:
   Serial.println("Received from: 0x" + String(sender, HEX));
@@ -132,4 +151,19 @@ void onReceive(int packetSize) {
   Serial.println("RSSI: " + String(LoRa.packetRssi()));
   Serial.println("Snr: " + String(LoRa.packetSnr()));
   Serial.println();
+}
+/*
+Timer is controlled by lora-water-pump
+Here we just need to blink the LED while timerRunning is true and blinkLed is true
+timerRunning is set to false if message "led off" is received 
+from lora-water-pump
+
+*/
+void checkTimer(){
+  if (timerRunning && blinkLed){
+    delay(250);
+    digitalWrite(LED, !digitalRead(LED));   // Toggle the relay
+    delay(250);
+    digitalWrite(LED, !digitalRead(LED));   // Toggle the relay
+  }
 }
