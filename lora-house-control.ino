@@ -26,8 +26,8 @@ byte msgCount = 0;            // count of outgoing messages
 byte localAddress = 0xDA;     // address of this device
 byte destination = 0xDF;      // destinatioln to send to
 long lastSendTime = 0;        // last send time
+long lastBlinkTime = 0;
 int intervalask = ASK_TIME;     // interval between sends
-long interval = 60000;          // interval between sends
 byte counterTimer = 0;
 boolean timerRunning = false;
 boolean blinkLed = false;
@@ -66,11 +66,7 @@ void loop() {
   button1.loop();
   
    if(button1.isPressed()){
-    sendMessage("toggle");              // send lora message to toggle relay
-    Serial.println("Sending toggle");
     pressedTime = millis();             // save pressed time for release time calculation
-    timerRunning = false;               // stop timer when short pressed
-    LoRa.receive();                     // go back into receive mode
   }
 
   if ((millis() - lastSendTime) > intervalask) {
@@ -87,10 +83,15 @@ void loop() {
 
     if( pressDuration > LONG_PRESS_TIME ){
       Serial.println("A long press is detected, turn on Relay and time it");
-      timerRunning = true; //wait for led on feedback to blink LED
+      timerRunning = true; //wait for relay on feedback to blink LED
       sendMessage("timer");              // send lora message to turn on relay and time it
       Serial.println("Sending timer");
+    } else { // short press actions
+      sendMessage("toggle");              // send lora message to toggle relay
+      Serial.println("Sending toggle");
+      timerRunning = false;               // stop timer when short pressed
     }
+    LoRa.receive();                     // go back into receive mode
   }
   checkTimer();
 }
@@ -132,15 +133,20 @@ void onReceive(int packetSize) {
     return;                             // skip rest of function
   }
 
-  if (incoming == "led on"){
+  if (incoming == "relay on"){
     digitalWrite(LED, HIGH);
     if (timerRunning)
        blinkLed = true;
   }
-  if (incoming == "led off"){
+  if (incoming == "relay off"){
     digitalWrite(LED, LOW);
     timerRunning = false;
     blinkLed = false;
+  }
+  if (incoming == "timer"){
+    digitalWrite(LED, HIGH);
+    timerRunning = true;
+    blinkLed = true;
   }
   // if message is for this device, or broadcast, print details:
   Serial.println("Received from: 0x" + String(sender, HEX));
@@ -155,15 +161,15 @@ void onReceive(int packetSize) {
 /*
 Timer is controlled by lora-water-pump
 Here we just need to blink the LED while timerRunning is true and blinkLed is true
-timerRunning is set to false if message "led off" is received 
+timerRunning is set to false if message "relay off" is received 
 from lora-water-pump
 
 */
 void checkTimer(){
   if (timerRunning && blinkLed){
-    delay(250);
-    digitalWrite(LED, !digitalRead(LED));   // Toggle the relay
-    delay(250);
-    digitalWrite(LED, !digitalRead(LED));   // Toggle the relay
+    if ((millis() - lastBlinkTime) > 250) {
+      lastBlinkTime = millis();
+      digitalWrite(LED, !digitalRead(LED));   // Toggle the led
+    }
   }
 }
