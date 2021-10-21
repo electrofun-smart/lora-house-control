@@ -10,11 +10,25 @@
 #include <LoRa.h>
 #include <ezButton.h>         // handle the button press eliminating bouncing
 
-const int csPin = 15;         // LoRa radio chip select
-const int resetPin = 16;      // LoRa radio reset
-const int irqPin = 4;         // change for your board; must be a hardware interrupt pin
-const int LED = 2;
+const int csPin = 15;         // D8 at Wemos LoRa radio chip select
+const int resetPin = 16;      // D0 at Wemos LoRa radio reset
+const int irqPin = 4;         // D2 at Wemos 
+const int LED = 2;            // D4 at Wemos
 
+/*         Wemos D1 PinOut
+              ___    _
+             | | |__| |
+             | |      |
+        RST RST        TX GPIO1
+       ADC0 A0         RX GPIO3
+WAKE GPIO16 D0         D1 GPIO5
+SCLK GPIO14 D5         D2 GPIO4
+MISO GPIO12 D6         D3 GPIO0
+MOSI GPIO13 D7         D4 GPIO2
+  CS GPIO15 D8         G
+            3V3  ___   5V
+                |usb|
+*/
 ezButton button1(5);
 
 const int DEBOUNCE_DELAY = 70;
@@ -50,7 +64,6 @@ void setup() {
 
   if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
     Serial.println("LoRa init failed. Check your connections.");
-    delay(100);
     while (true);                       // if failed, do nothing
   }
 
@@ -73,7 +86,6 @@ void loop() {
     sendMessage("asking");
     lastSendTime = millis();           // timestamp the message
     Serial.println("Sending asking");
-    LoRa.receive();                    // go back into receive mode
   }
   
   if(button1.isReleased()){
@@ -91,7 +103,6 @@ void loop() {
       Serial.println("Sending toggle");
       timerRunning = false;               // stop timer when short pressed
     }
-    LoRa.receive();                     // go back into receive mode
   }
   checkTimer();
 }
@@ -103,8 +114,9 @@ void sendMessage(String outgoing) {
   LoRa.write(msgCount);                 // add message ID
   LoRa.write(outgoing.length());        // add payload length
   LoRa.print(outgoing);                 // add payload
-  LoRa.endPacket(true);                     // finish packet and send it
+  LoRa.endPacket(true);                 // finish packet and send it
   msgCount++;                           // increment message ID
+  LoRa.receive();                       // go back into receive mode
 }
 
 void onReceive(int packetSize) {
